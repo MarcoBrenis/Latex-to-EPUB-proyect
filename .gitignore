@@ -1,17 +1,10 @@
-# System files
-.DS_Store
-Thumbs.db
-
-# Python
+# Python cache files
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.venv/
-venv/
-env/
 
-# Test outputs
+# macOS files
+.DS_Store
+
+# Local test output files
 test_output.epub
-temp_*/
-*.log
+test_output/
