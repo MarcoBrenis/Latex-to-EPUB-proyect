@@ -6,70 +6,55 @@ El convertidor está desarrollado utilizando únicamente la biblioteca estándar
 
 ---
 
-## Características Principales
+## Características Principales y Recientes
 
-*   **Doble Formato de Carga**: Acepta un archivo `.html` individual o un archivo `.zip` que contenga un proyecto web completo (ej. `index.html` referenciando carpetas locales como `images/`, `css/` o `fonts/`).
-*   **Editor Completo de Metadatos**: Configura de manera visual el Título del libro, Autor(es), Editorial, Idioma (selector ISO), Licencia de Derechos y una Sinopsis/Descripción multilínea.
+*   **Páginas Preliminares (Front Matter) Avanzadas**:
+    *   Campos dedicados para **Copyright**, **Dedicatoria** y **Prefacio** / Introducción.
+    *   La herramienta genera automáticamente archivos XHTML independientes (`00_copyright.html`, `00_dedication.html`, `00_preface.html`) y los inyecta al inicio de la compilación de Pandoc.
+    *   Incluye encabezados lógicos invisibles para forzar a los e-readers a **paginar y dividir las páginas preliminares correctamente** (cada una en su respectiva pantalla).
 *   **Gestor de Portadas**: Permite subir de forma opcional una imagen de portada (`.png`, `.jpg` o `.jpeg`) que se incrustará de forma nativa e IDPF-compatible en el contenedor del libro.
-*   **Ajustes de Maquetación**:
-    *   **Bookish (Clásico Serif)**: Diseñado para novelas clásicas y literatura con tipografía serifada, sangrado elegante de párrafos y márgenes amplios.
-    *   **Modern (Sans-Serif)**: Estilo de lectura limpio y espaciado para libros técnicos, tutoriales y documentación de código.
-    *   **Academic**: Estilos y márgenes formales con tipografía formal tipo Times New Roman y cabeceras subrayadas.
-*   **Configuración Avanzada**:
-    *   Generación automática de Índice de Contenidos (TOC) con control de profundidad (h1, h2, h3).
-    *   Control del nivel de división de capítulos (creación de secciones lógicas del EPUB basadas en cabeceras `h1` o `h2`).
-*   **Consola de Diagnóstico**: Visualización en tiempo real de logs y posibles advertencias reportadas por Pandoc durante el procesamiento.
+*   **Título de Índice en Español**: Configuración de `toc-title: "Índice"` para asegurar que la tabla de contenidos generada por Pandoc esté traducida correctamente.
+*   **Auto-Guardado Físico**: Al convertir, el archivo `.epub` se guarda automáticamente y de manera física en la carpeta de Descargas del sistema (`~/Downloads/`).
 
 ---
 
 ## Requisitos de Sistema
 
-1.  **Python 3** (instalado por defecto en macOS/Linux).
+1.  **Python 3**
 2.  **Pandoc**: Motor de conversión de documentos.
-    *   En macOS se instala fácilmente con Homebrew:
+    *   En macOS se instala con Homebrew:
         ```bash
         brew install pandoc
         ```
-    *   En Windows o Linux, descárgalo desde la [Página Oficial de Pandoc](https://pandoc.org/installing.html).
 
 ---
 
 ## Cómo Iniciar la Aplicación
 
-1.  Abre una terminal y dirígete al directorio del convertidor.
-2.  Inicia el servidor local de Python:
+1.  Abre una terminal y navega hasta el directorio del convertidor.
+2.  Inicia el servidor local:
     ```bash
     python3 html_to_epub.py
     ```
-3.  La aplicación detectará un puerto libre (por defecto `8081`) e iniciará automáticamente tu navegador web predeterminado en la dirección:
+3.  La aplicación se abrirá en tu navegador en:
     👉 **http://localhost:8081**
 
 ---
 
-## Preparación de tus Archivos HTML
+## Cómo subir el proyecto a GitHub 🚀
 
-Para garantizar una conversión perfecta de tus proyectos complejos, sigue estas recomendaciones:
+Para publicar este convertidor como un repositorio independiente en tu cuenta de GitHub, sigue estos pasos:
 
-*   **Estructura del ZIP**: El archivo ZIP debe contener un archivo principal llamado `index.html` (o al menos un archivo `.html` en la raíz).
-*   **Rutas Relativas**: Todas las imágenes, estilos CSS o recursos adicionales deben referenciarse mediante rutas relativas estándar en el HTML:
-    ```html
-    <link rel="stylesheet" href="css/estilos.css">
-    <img src="images/foto.png" alt="Descripción">
-    ```
-*   **Codificación UTF-8**: Guarda siempre tus archivos HTML con codificación UTF-8 para garantizar que las tildes y caracteres especiales en español se lean de forma correcta.
+1. Crea un repositorio vacío en tu cuenta de GitHub (ej. llamado `html-to-epub-converter`). **No** le agregues README ni licencia en la web.
+2. Abre la terminal en esta carpeta y ejecuta los siguientes comandos:
+   ```bash
+   # Agregar el enlace remoto de tu nuevo repositorio de GitHub
+   git remote add origin https://github.com/TU_USUARIO/TU_REPOSITORIO.git
 
----
+   # Renombrar la rama a main
+   git branch -M main
 
-## Pruebas de Integración Automatizadas
-
-Para validar que todo el sistema y la instalación de Pandoc funcionan correctamente, se incluye una suite de pruebas automatizadas:
-
-1.  **Generar entorno de prueba**: Crea un proyecto HTML ficticio con estilos locales, imágenes internas y una portada ejecutando:
-    ```bash
-    python3 create_test_html_zip.py
-    ```
-2.  **Correr los tests**: Con el servidor `html_to_epub.py` encendido en segundo plano, ejecuta:
-    ```bash
-    python3 test_client.py
-    ```
-El cliente enviará los archivos Base64, esperará la compilación exitosa y analizará el contenedor `.epub` generado (validando la existencia del `mimetype` requerido, esquemas XML y assets multimedia).
+   # Subir el código a GitHub
+   git push -u origin main
+   ```
+¡Listo! Tu convertidor de EPUB estará en GitHub y listo para ser usado por ti o tus colaboradores.
