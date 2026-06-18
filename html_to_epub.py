@@ -1224,22 +1224,20 @@ FRONTEND_HTML = """<!DOCTYPE html>
 
             <div class="dropzone-container split">
                 <!-- HTML or ZIP dropzone -->
-                <div class="dropzone" id="html-dropzone">
+                <label class="dropzone" id="html-dropzone" for="html-file-input">
                     <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"></path></svg>
                     <span>Proyecto HTML</span>
                     <span class="small-hint">.html o .zip</span>
-                    <input type="file" id="html-file-input" accept=".html,.htm,.zip"
-                           style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:2;">
-                </div>
+                </label>
+                <input type="file" id="html-file-input" accept=".html,.htm,.zip" style="display:none;">
 
                 <!-- Cover image dropzone -->
-                <div class="dropzone" id="cover-dropzone">
-                    <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375 0 11-.75 0 .375 0 01.75 0z"></path></svg>
+                <label class="dropzone" id="cover-dropzone" for="cover-file-input">
+                    <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"></path></svg>
                     <span>Portada</span>
                     <span class="small-hint">PNG o JPG (opcional)</span>
-                    <input type="file" id="cover-file-input" accept=".png,.jpg,.jpeg"
-                           style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:2;">
-                </div>
+                </label>
+                <input type="file" id="cover-file-input" accept=".png,.jpg,.jpeg" style="display:none;">
             </div>
 
             <!-- Upload file indicators -->
@@ -1410,40 +1408,32 @@ FRONTEND_HTML = """<!DOCTYPE html>
         let htmlBase64 = null;
         let coverBase64 = null;
         
-        // --- Drag and Drop Handlers ---
-        function setupDragAndDrop(zoneId, inputId, handlerFn) {
-            const dropzone = document.getElementById(zoneId);
+        // --- File Input & Drag-and-Drop ---
+        // The <label for="inputId"> handles click-to-open natively in all browsers.
+        // We only need to wire up the 'change' event and drag-drop visual feedback.
+
+        function setupFileInput(inputId, zoneId, handlerFn) {
             const input = document.getElementById(inputId);
-            if (!dropzone || !input) return;
+            const zone  = document.getElementById(zoneId);
+            if (!input || !zone) return;
 
-            // The input is positioned absolutely over the dropzone (opacity:0) so
-            // clicks are caught natively. We only need change + drag events.
-            input.addEventListener('change', (e) => {
-                if (e.target.files.length > 0) {
-                    handlerFn(e.target.files[0]);
-                }
+            // File selected via click (label triggers this)
+            input.addEventListener('change', () => {
+                if (input.files.length > 0) handlerFn(input.files[0]);
             });
 
-            dropzone.addEventListener('dragover', (e) => {
+            // Drag-and-drop support
+            zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+            zone.addEventListener('dragleave', ()  => { zone.classList.remove('dragover'); });
+            zone.addEventListener('drop', (e) => {
                 e.preventDefault();
-                dropzone.classList.add('dragover');
-            });
-
-            dropzone.addEventListener('dragleave', () => {
-                dropzone.classList.remove('dragover');
-            });
-
-            dropzone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                dropzone.classList.remove('dragover');
-                if (e.dataTransfer.files.length > 0) {
-                    handlerFn(e.dataTransfer.files[0]);
-                }
+                zone.classList.remove('dragover');
+                if (e.dataTransfer.files.length > 0) handlerFn(e.dataTransfer.files[0]);
             });
         }
 
-        setupDragAndDrop('html-dropzone', 'html-file-input', handleHtmlFile);
-        setupDragAndDrop('cover-dropzone', 'cover-file-input', handleCoverFile);
+        setupFileInput('html-file-input',  'html-dropzone',  handleHtmlFile);
+        setupFileInput('cover-file-input', 'cover-dropzone', handleCoverFile);
 
         // --- File Handlers ---
         function handleHtmlFile(file) {
