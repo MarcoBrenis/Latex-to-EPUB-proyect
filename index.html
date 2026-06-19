@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LaTeX to EPUB Conversion Suite</title>
+    <!-- Google Fonts: Outfit & Space Grotesk -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(17, 24, 39, 0.7);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent-blue: #60a5fa;
+            --accent-purple: #a78bfa;
+            --glow-blue: rgba(96, 165, 250, 0.15);
+            --glow-purple: rgba(167, 139, 250, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow-x: hidden;
+            position: relative;
+            padding: 40px 20px;
+        }
+
+        /* Decorative Glowing Background Gradients */
+        .backdrop-glow {
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            border-radius: 50%;
+            filter: blur(120px);
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.8;
+        }
+
+        .glow-1 {
+            top: -10%;
+            left: -10%;
+            background: radial-gradient(circle, var(--glow-blue) 0%, transparent 70%);
+        }
+
+        .glow-2 {
+            bottom: -10%;
+            right: -10%;
+            background: radial-gradient(circle, var(--glow-purple) 0%, transparent 70%);
+        }
+
+        .wrapper {
+            max-width: 1100px;
+            width: 100%;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 2.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 12px;
+            letter-spacing: -0.03em;
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 1.15rem;
+            max-width: 600px;
+            margin: 0 auto;
+            line-height: 1.5;
+            font-weight: 300;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 30px;
+        }
+
+        /* Glassmorphism Card Design */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 35px;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 380px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 100%);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            pointer-events: none;
+        }
+
+        .card:hover {
+            transform: translateY(-8px) scale(1.01);
+            border-color: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .icon-wrapper {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .card:nth-child(1) .icon-wrapper {
+            color: var(--accent-blue);
+            background: rgba(96, 165, 250, 0.1);
+            border-color: rgba(96, 165, 250, 0.2);
+        }
+
+        .card:nth-child(2) .icon-wrapper {
+            color: var(--accent-purple);
+            background: rgba(167, 139, 250, 0.1);
+            border-color: rgba(167, 139, 250, 0.2);
+        }
+
+        .card h2 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.45rem;
+            font-weight: 600;
+        }
+
+        .card-body {
+            flex-grow: 1;
+        }
+
+        .card-body p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .tag-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 25px;
+        }
+
+        .tag {
+            font-size: 0.75rem;
+            font-weight: 500;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+        }
+
+        .card:nth-child(1) .tag {
+            color: #93c5fd;
+            background: rgba(96, 165, 250, 0.05);
+            border-color: rgba(96, 165, 250, 0.1);
+        }
+
+        .card:nth-child(2) .tag {
+            color: #c084fc;
+            background: rgba(167, 139, 250, 0.05);
+            border-color: rgba(167, 139, 250, 0.1);
+        }
+
+        .card-footer {
+            margin-top: 15px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+            font-family: inherit;
+        }
+
+        .card:nth-child(1) .btn {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.2);
+        }
+
+        .card:nth-child(1) .btn:hover {
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
+        }
+
+        .card:nth-child(2) .btn {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(124, 58, 237, 0.2);
+        }
+
+        .card:nth-child(2) .btn:hover {
+            background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35);
+        }
+
+        /* Quick Start Console Element */
+        .terminal {
+            background: rgba(10, 12, 22, 0.85);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: #38bdf8;
+            line-height: 1.6;
+        }
+
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding-bottom: 12px;
+            margin-bottom: 15px;
+            color: var(--text-secondary);
+        }
+
+        .dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .dot-red { background-color: #ef4444; }
+        .dot-yellow { background-color: #eab308; }
+        .dot-green { background-color: #22c55e; }
+
+        .terminal-body {
+            color: #e2e8f0;
+        }
+
+        .comment { color: #64748b; }
+        .cmd { color: #38bdf8; }
+        .output { color: #a78bfa; }
+
+        footer {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-top: 20px;
+            font-weight: 300;
+        }
+
+        @media (max-width: 600px) {
+            h1 { font-size: 2.2rem; }
+            .card { min-height: auto; }
+        }
+    </style>
+</head>
+<body>
+    <div class="backdrop-glow glow-1"></div>
+    <div class="backdrop-glow glow-2"></div>
+
+    <div class="wrapper">
+        <header>
+            <h1>LaTeX to EPUB Suite</h1>
+            <p>Herramientas de conversión autónomas de grado editorial para autores, académicos e investigadores.</p>
+        </header>
+
+        <div class="grid">
+            <!-- LaTeX to HTML Card -->
+            <div class="card">
+                <div>
+                    <div class="card-header">
+                        <div class="icon-wrapper">
+                            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"></path></svg>
+                        </div>
+                        <h2>LaTeX ➔ HTML</h2>
+                    </div>
+                    <div class="card-body">
+                        <p>Compila proyectos completos de LaTeX (.zip o .tex individuales) a páginas web responsivas. Soporte avanzado de ecuaciones mediante MathJax, detección automática del documento raíz, y layouts listos para e-readers o impresiones limpias.</p>
+                        <div class="tag-list">
+                            <span class="tag">MathJax 3</span>
+                            <span class="tag">Multi-encoding</span>
+                            <span class="tag">Ref/Eqref resolution</span>
+                            <span class="tag">Port 8084</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <a href="https://github.com/MarcoBrenis/Latex-to-EPUB-proyect/tree/main/latex_to_html_converter" class="btn">Explorar Repositorio</a>
+                </div>
+            </div>
+
+            <!-- HTML to EPUB Card -->
+            <div class="card">
+                <div>
+                    <div class="card-header">
+                        <div class="icon-wrapper">
+                            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        </div>
+                        <h2>HTML ➔ EPUB 3</h2>
+                    </div>
+                    <div class="card-body">
+                        <p>Genera libros electrónicos estándar de alta compatibilidad para Kindle, Apple Books y Kobo. Resuelve de forma proactiva warnings de navegación, localiza imágenes remotas y ecuaciones SVG, y sanitiza rutas de medios para Kindle Previewer.</p>
+                        <div class="tag-list">
+                            <span class="tag">EPUB 3 Standard</span>
+                            <span class="tag">Kindle E21018 Fix</span>
+                            <span class="tag">Media Sanitizer</span>
+                            <span class="tag">Port 8081</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <a href="https://github.com/MarcoBrenis/Latex-to-EPUB-proyect/tree/main/html_to_epub_converter" class="btn">Explorar Repositorio</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Terminal Quick Start -->
+        <div class="terminal">
+            <div class="terminal-header">
+                <div class="dots">
+                    <div class="dot dot-red"></div>
+                    <div class="dot dot-yellow"></div>
+                    <div class="dot dot-green"></div>
+                </div>
+                <span>Terminal Quick Start</span>
+            </div>
+            <div class="terminal-body">
+                <span class="comment"># 1. Clona el repositorio e instala Pandoc en tu sistema</span><br>
+                <span class="cmd">git clone</span> https://github.com/MarcoBrenis/Latex-to-EPUB-proyect.git<br>
+                <span class="cmd">brew install</span> pandoc <span class="comment"># macOS (o tu gestor de paquetes de preferencia)</span><br><br>
+                <span class="comment"># 2. Inicia el servidor LaTeX a HTML (Puerto 8084)</span><br>
+                <span class="cmd">cd</span> Latex-to-EPUB-proyect/latex_to_html_converter<br>
+                <span class="cmd">python3</span> latex_to_html.py<br><br>
+                <span class="comment"># 3. Inicia el servidor HTML a EPUB (Puerto 8081)</span><br>
+                <span class="cmd">cd</span> ../html_to_epub_converter<br>
+                <span class="cmd">python3</span> html_to_epub.py
+            </div>
+        </div>
+
+        <footer>
+            Desarrollado de forma modular utilizando únicamente la biblioteca estándar de Python 3.
+        </footer>
+    </div>
+</body>
+</html>

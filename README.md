@@ -1,60 +1,63 @@
-# Convertidor HTML a EPUB 📖
+# LaTeX to EPUB Suite 📄 ➔ 🌐 ➔ 📖
 
-Una herramienta local, autónoma e interactiva para convertir tus proyectos o manuscritos HTML (incluyendo hojas de estilo locales, imágenes y fuentes) en libros digitales estándar **EPUB 3** listos para cualquier lector digital (e-readers como Apple Books, Kindle o Kobo).
+Este repositorio contiene un conjunto de herramientas autónomas desarrolladas en Python 3 para convertir manuscritos científicos y literarios desde **LaTeX** a **HTML** responsivo, y de **HTML** a libros digitales estándar **EPUB 3** altamente compatibles con Kindle, Apple Books, Kobo, entre otros.
 
-El convertidor está desarrollado utilizando únicamente la biblioteca estándar de Python (sin dependencias de `pip`) y utiliza **Pandoc** de manera local como motor de compilación estructurada.
+Ambos proyectos corren servidores locales independientes mediante una interfaz gráfica tipo Dashboard web moderna y estilizada.
 
 ---
 
-## Características Principales y Recientes
+## Estructura del Proyecto
 
-*   **Páginas Preliminares (Front Matter) Avanzadas**:
-    *   Campos dedicados para **Copyright**, **Dedicatoria** y **Prefacio** / Introducción.
-    *   La herramienta genera automáticamente archivos XHTML independientes (`00_copyright.html`, `00_dedication.html`, `00_preface.html`) y los inyecta al inicio de la compilación de Pandoc.
-    *   Incluye encabezados lógicos invisibles para forzar a los e-readers a **paginar y dividir las páginas preliminares correctamente** (cada una en su respectiva pantalla).
-*   **Gestor de Portadas**: Permite subir de forma opcional una imagen de portada (`.png`, `.jpg` o `.jpeg`) que se incrustará de forma nativa e IDPF-compatible en el contenedor del libro.
-*   **Título de Índice en Español**: Configuración de `toc-title: "Índice"` para asegurar que la tabla de contenidos generada por Pandoc esté traducida correctamente.
-*   **Auto-Guardado Físico**: Al convertir, el archivo `.epub` se guarda automáticamente y de manera física en la carpeta de Descargas del sistema (`~/Downloads/`).
+*   **`latex_to_html_converter/`**: Compila proyectos LaTeX completos en formato `.zip` a páginas web HTML responsivas con soporte de MathJax 3.
+*   **`html_to_epub_converter/`**: Toma archivos o proyectos HTML y los empaqueta en formato estándar EPUB 3, resolviendo errores de compilación habituales del lector Kindle (E21018, W14010, W25001).
+*   **`index.html`**: Página de presentación del repositorio.
+
+---
+
+## Características de la Suite
+
+### 1. LaTeX a HTML
+*   **Gestión de Codificaciones**: Decodificación segura en cascada para evitar pérdidas de caracteres en español y acentos.
+*   **Índice Dinámico (TOC)**: Generación automática de índice lateral en español.
+*   **Páginas de Metadatos y Front Matter**: Secciones de Copyright, Dedicatoria y Prefacio configurables desde el dashboard.
+*   **Soporte de Ecuaciones**: Integración limpia de MathJax 3 para fórmulas inline y de bloque.
+
+### 2. HTML a EPUB 3 (Optimizado para Kindle)
+*   **Sanitizador de Rutas de Imágenes**: URL-decodifica y aplana los directorios de imágenes de forma recursiva para evitar la advertencia de Kindle Previewer `W14010` (recursos no encontrados debido a espacios o caracteres especiales).
+*   **Localizador de Ecuaciones SVG**: Descarga las ecuaciones compiladas dinámicamente y las inserta en la carpeta local `media/` del EPUB para resolver el error `W25001`.
+*   **Limpiador de Anclas de Navegación**: Limpia etiquetas HTML no deseadas dentro del `nav.xhtml` para garantizar compatibilidad con las directrices de publicación de Amazon (error `E21018`).
+*   **Copia en Descargas**: Guarda de forma automática el archivo compilado físicamente en la carpeta de descargas del usuario (`~/Downloads`).
 
 ---
 
 ## Requisitos de Sistema
 
-1.  **Python 3**
-2.  **Pandoc**: Motor de conversión de documentos.
-    *   En macOS se instala con Homebrew:
+1.  **Python 3.x**
+2.  **Pandoc**: Utilizado de manera interna como motor de parseo y compilación estructurada.
+    *   En macOS se instala fácilmente con Homebrew:
         ```bash
         brew install pandoc
         ```
 
 ---
 
-## Cómo Iniciar la Aplicación
+## Guía de Inicio Rápido 🚀
 
-1.  Abre una terminal y navega hasta el directorio del convertidor.
-2.  Inicia el servidor local:
-    ```bash
-    python3 html_to_epub.py
-    ```
-3.  La aplicación se abrirá en tu navegador en:
-    👉 **http://localhost:8081**
+### Correr LaTeX a HTML (Puerto 8084)
+```bash
+cd latex_to_html_converter
+python3 latex_to_html.py
+```
+Abre en tu navegador: **`http://localhost:8084`**
+
+### Correr HTML a EPUB 3 (Puerto 8081)
+```bash
+cd html_to_epub_converter
+python3 html_to_epub.py
+```
+Abre en tu navegador: **`http://localhost:8081`**
 
 ---
 
-## Cómo subir el proyecto a GitHub 🚀
-
-Para publicar este convertidor como un repositorio independiente en tu cuenta de GitHub, sigue estos pasos:
-
-1. Crea un repositorio vacío en tu cuenta de GitHub (ej. llamado `html-to-epub-converter`). **No** le agregues README ni licencia en la web.
-2. Abre la terminal en esta carpeta y ejecuta los siguientes comandos:
-   ```bash
-   # Agregar el enlace remoto de tu nuevo repositorio de GitHub
-   git remote add origin https://github.com/TU_USUARIO/TU_REPOSITORIO.git
-
-   # Renombrar la rama a main
-   git branch -M main
-
-   # Subir el código a GitHub
-   git push -u origin main
-   ```
-¡Listo! Tu convertidor de EPUB estará en GitHub y listo para ser usado por ti o tus colaboradores.
+## Licencia y Uso
+Desarrollado modularmente usando la biblioteca estándar de Python (sin requerir módulos de terceros vía `pip`). Siéntete libre de clonarlo, adaptarlo o contribuir en ramas dedicadas.
