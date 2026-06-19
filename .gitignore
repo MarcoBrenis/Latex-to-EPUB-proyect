@@ -8,3 +8,7 @@ __pycache__/
 # Local test output files
 test_output.epub
 test_output/
+*.epub
+*.zip
+test_zip_images.py
+epub.py

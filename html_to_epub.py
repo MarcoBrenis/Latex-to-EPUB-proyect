@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+import re
 import json
 import base64
 import shutil
@@ -235,6 +236,379 @@ th {
     }
 }
 
+from urllib.parse import unquote
+import requests
+
+def preprocess_html_images(html_dir):
+    """
+    Scans all HTML files in html_dir, finds img/embed tags, and:
+    1. Decodes and cleans relative/local image paths.
+    2. Renames the physical files on disk to match the clean paths.
+    3. Extracts and decodes base64 data URIs into physical files.
+    """
+    images_dir = os.path.join(html_dir, 'images')
+    os.makedirs(images_dir, exist_ok=True)
+    
+    base64_counter = 0
+
+    for root, _, files in os.walk(html_dir):
+        for file in files:
+            if file.lower().endswith(('.html', '.htm')):
+                file_path = os.path.join(root, file)
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        html_content = f.read()
+                    
+                    modified = False
+                    src_pattern = re.compile(r'(<(?:img|embed)\b[^>]*\bsrc=["\'])([^"\']*)(["\'][^>]*>)', re.IGNORECASE)
+                    
+                    def replacer(match):
+                        nonlocal modified, base64_counter
+                        prefix = match.group(1)
+                        src = match.group(2)
+                        suffix = match.group(3)
+                        
+                        if not src:
+                            return match.group(0)
+                        
+                        if src.startswith('data:'):
+                            try:
+                                header, data_b64 = src.split(',', 1)
+                                mime_type = header.split(';')[0].split(':')[1]
+                                ext = mimetypes.guess_extension(mime_type) or '.png'
+                                
+                                img_data = base64.b64decode(data_b64)
+                                base64_counter += 1
+                                local_filename = f"extracted_b64_{base64_counter}{ext}"
+                                local_path = os.path.join(images_dir, local_filename)
+                                
+                                with open(local_path, 'wb') as img_f:
+                                    img_f.write(img_data)
+                                
+                                modified = True
+                                print(f"[PREPROCESS] Extracted base64 image to images/{local_filename}")
+                                return f"{prefix}images/{local_filename}{suffix}"
+                            except Exception as b64_err:
+                                print(f"[WARNING] Failed to extract base64 image: {b64_err}")
+                                return match.group(0)
+                                
+                        if src.startswith(('http://', 'https://')):
+                            return match.group(0)
+                            
+                        # Relative path
+                        decoded_src = unquote(src)
+                        decoded_src = decoded_src.replace('\\', '/')
+                        
+                        # Find physical path
+                        physical_path = os.path.abspath(os.path.join(html_dir, decoded_src))
+                        if not os.path.exists(physical_path):
+                            physical_path = os.path.abspath(os.path.join(root, decoded_src))
+                            
+                        if os.path.exists(physical_path) and os.path.isfile(physical_path):
+                            base_name = os.path.basename(physical_path)
+                            parent_dir_name = os.path.basename(os.path.dirname(physical_path))
+                            
+                            clean_base = re.sub(r'[^a-zA-Z0-9_.]', '_', base_name)
+                            clean_parent = re.sub(r'[^a-zA-Z0-9_.]', '_', parent_dir_name)
+                            
+                            clean_filename = f"{clean_parent}_{clean_base}"
+                            if clean_parent == "images" or not clean_parent:
+                                clean_filename = clean_base
+                                
+                            clean_local_path = os.path.join(images_dir, clean_filename)
+                            
+                            try:
+                                if physical_path != clean_local_path:
+                                    shutil.copy2(physical_path, clean_local_path)
+                                modified = True
+                                print(f"[PREPROCESS] Localized {decoded_src} to images/{clean_filename}")
+                                return f"{prefix}images/{clean_filename}{suffix}"
+                            except Exception as copy_err:
+                                print(f"[WARNING] Failed to copy image {physical_path} to {clean_local_path}: {copy_err}")
+                                return match.group(0)
+                        else:
+                            print(f"[WARNING] Image path not found on disk: {decoded_src} (checked {physical_path})")
+                            return match.group(0)
+                            
+                    new_content = src_pattern.sub(replacer, html_content)
+                    if modified:
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            f.write(new_content)
+                except Exception as file_err:
+                    print(f"[WARNING] Error pre-processing images in {file_path}: {file_err}")
+
+def rebuild_epub(epub_path, source_dir):
+    temp_epub_path = epub_path + '.tmp'
+    try:
+        with zipfile.ZipFile(temp_epub_path, 'w') as z:
+            mimetype_path = os.path.join(source_dir, 'mimetype')
+            if os.path.exists(mimetype_path):
+                z.write(mimetype_path, 'mimetype', compress_type=zipfile.ZIP_STORED)
+                
+            for root, _, files in os.walk(source_dir):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, source_dir)
+                    if rel_path == 'mimetype':
+                        continue
+                    if file.startswith('.') or 'desktop.ini' in file.lower():
+                        continue
+                    z.write(full_path, rel_path, compress_type=zipfile.ZIP_DEFLATED)
+        shutil.move(temp_epub_path, epub_path)
+    except Exception as rebuild_err:
+        print(f"[POSTPROCESS] [ERROR] Failed to rebuild EPUB zip: {rebuild_err}")
+
+def clean_nav_xhtml(content):
+    def replacer(match):
+        a_open = match.group(1)
+        inner = match.group(2)
+        a_close = match.group(3)
+        temp = inner
+        img_pattern = re.compile(r'<img[^>]*alt=[\"\']([^\"\']*)[\"\'][^>]*>')
+        temp = img_pattern.sub(r' \1 ', temp)
+        temp = re.sub(r'<[^>]+>', '', temp)
+        temp = re.sub(r'\s+', ' ', temp).strip()
+        return f'{a_open}{temp}{a_close}'
+    a_pattern = re.compile(r'(<a\b[^>]*>)(.*?)(</a>)', re.DOTALL | re.IGNORECASE)
+    return a_pattern.sub(replacer, content)
+
+def postprocess_generated_epub(epub_path):
+    print("[POSTPROCESS] Starting post-processing of EPUB...")
+    
+    with tempfile.TemporaryDirectory() as post_temp:
+        try:
+            with zipfile.ZipFile(epub_path, 'r') as z:
+                z.extractall(post_temp)
+        except Exception as unzip_err:
+            print(f"[POSTPROCESS] Failed to unzip EPUB for post-processing: {unzip_err}")
+            return
+            
+        modified = False
+        
+        # Clean nav.xhtml
+        nav_file_path = None
+        for root, _, files in os.walk(post_temp):
+            for file in files:
+                if file.endswith('nav.xhtml'):
+                    nav_file_path = os.path.join(root, file)
+                    break
+            if nav_file_path:
+                break
+                
+        if nav_file_path:
+            try:
+                with open(nav_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    nav_content = f.read()
+                
+                cleaned_nav = clean_nav_xhtml(nav_content)
+                if cleaned_nav != nav_content:
+                    with open(nav_file_path, 'w', encoding='utf-8') as f:
+                        f.write(cleaned_nav)
+                    modified = True
+                    print("[POSTPROCESS] Cleaned nav.xhtml navigation list.")
+            except Exception as nav_err:
+                print(f"[POSTPROCESS] Failed to clean nav.xhtml: {nav_err}")
+                
+        # Locate content.opf
+        opf_file_path = None
+        for root, _, files in os.walk(post_temp):
+            for file in files:
+                if file.endswith('.opf'):
+                    opf_file_path = os.path.join(root, file)
+                    break
+            if opf_file_path:
+                break
+                
+        if not opf_file_path:
+            print("[POSTPROCESS] content.opf not found, skipping remote SVG localization.")
+            if modified:
+                rebuild_epub(epub_path, post_temp)
+            return
+
+        # Find all XHTML files
+        content_files = []
+        for root, _, files in os.walk(post_temp):
+            for file in files:
+                if file.lower().endswith(('.xhtml', '.html', '.htm')):
+                    if 'nav.xhtml' not in file.lower():
+                        content_files.append(os.path.join(root, file))
+
+        # Media directory
+        epub_media_dir = os.path.join(os.path.dirname(opf_file_path), 'media')
+        os.makedirs(epub_media_dir, exist_ok=True)
+        
+        new_manifest_items = []
+        downloaded_count = 0
+        
+        # Match img or embed with remote src (possibly prefixed by relative dots)
+        remote_src_pattern = re.compile(
+            r'(<(?:img|embed)\b[^>]*\bsrc=["\'])((\.\./)*https?://[^"\']*)(["\'][^>]*>)', 
+            re.IGNORECASE
+        )
+        
+        for c_file in content_files:
+            try:
+                with open(c_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    c_content = f.read()
+                
+                c_modified = False
+                
+                def remote_replacer(match):
+                    nonlocal c_modified, downloaded_count, new_manifest_items, modified
+                    tag_start = match.group(1)
+                    full_src = match.group(2)
+                    tag_end = match.group(4)
+                    
+                    url_start_idx = full_src.find('http')
+                    if url_start_idx == -1:
+                        return match.group(0)
+                    remote_url = full_src[url_start_idx:]
+                    
+                    remote_url = html.unescape(remote_url)
+                    
+                    try:
+                        print(f"[POSTPROCESS] Downloading remote resource: {remote_url}")
+                        resp = requests.get(remote_url, timeout=30)
+                        downloaded_count += 1
+                        ext = '.svg'
+                        content_type = resp.headers.get('content-type', '')
+                        if 'png' in content_type:
+                            ext = '.png'
+                        elif 'jpeg' in content_type or 'jpg' in content_type:
+                            ext = '.jpg'
+                        elif 'gif' in content_type:
+                            ext = '.gif'
+                            
+                        local_filename = f"custom_math_{downloaded_count}{ext}"
+                        local_dest = os.path.join(epub_media_dir, local_filename)
+                        
+                        if resp.status_code == 200:
+                            with open(local_dest, 'wb') as img_f:
+                                img_f.write(resp.content)
+                        else:
+                            print(f"[POSTPROCESS] [WARNING] Remote download failed with code {resp.status_code}. Generating fallback SVG.")
+                            ext = '.svg'
+                            local_filename = f"custom_math_{downloaded_count}{ext}"
+                            local_dest = os.path.join(epub_media_dir, local_filename)
+                            
+                            # Extract raw TeX from URL for the fallback display
+                            raw_tex = ""
+                            try:
+                                import urllib.parse
+                                parsed_url = urllib.parse.urlparse(remote_url)
+                                query = parsed_url.query
+                                if query:
+                                    raw_tex = urllib.parse.unquote(query)
+                                else:
+                                    raw_tex = urllib.parse.unquote(parsed_url.path)
+                            except:
+                                raw_tex = remote_url
+                                
+                            raw_tex_truncated = raw_tex[:100] + ('...' if len(raw_tex) > 100 else '')
+                            escaped_tex = html.escape(raw_tex_truncated)
+                            
+                            fallback_svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="600" height="40">
+  <text x="10" y="25" font-family="monospace" font-size="12" fill="#ef4444">[Error al cargar fórmula: {escaped_tex}]</text>
+</svg>"""
+                            with open(local_dest, 'w', encoding='utf-8') as img_f:
+                                img_f.write(fallback_svg)
+                                
+                        mime_type = "image/svg+xml"
+                        if ext == '.png':
+                            mime_type = "image/png"
+                        elif ext in ('.jpg', '.jpeg'):
+                            mime_type = "image/jpeg"
+                        elif ext == '.gif':
+                            mime_type = "image/gif"
+                            
+                        new_manifest_items.append({
+                            "id": f"custom_math_{downloaded_count}",
+                            "href": f"media/{local_filename}",
+                            "media-type": mime_type
+                        })
+                        
+                        new_tag_start = tag_start
+                        if '<embed' in tag_start.lower():
+                            new_tag_start = tag_start.replace('<embed', '<img').replace('<EMBED', '<img')
+                        
+                        c_modified = True
+                        modified = True
+                        print(f"[POSTPROCESS] Localized {remote_url} to media/{local_filename}")
+                        return f"{new_tag_start}../media/{local_filename}{tag_end}"
+                    except Exception as download_err:
+                        print(f"[POSTPROCESS] [WARNING] Failed to download {remote_url}: {download_err}. Generating fallback SVG.")
+                        downloaded_count += 1
+                        ext = '.svg'
+                        local_filename = f"custom_math_{downloaded_count}{ext}"
+                        local_dest = os.path.join(epub_media_dir, local_filename)
+                        
+                        escaped_tex = html.escape(remote_url[:100] + ('...' if len(remote_url) > 100 else ''))
+                        fallback_svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="600" height="40">
+  <text x="10" y="25" font-family="monospace" font-size="12" fill="#ef4444">[Error al descargar recurso: {escaped_tex}]</text>
+</svg>"""
+                        try:
+                            with open(local_dest, 'w', encoding='utf-8') as img_f:
+                                img_f.write(fallback_svg)
+                            
+                            mime_type = "image/svg+xml"
+                            new_manifest_items.append({
+                                "id": f"custom_math_{downloaded_count}",
+                                "href": f"media/{local_filename}",
+                                "media-type": mime_type
+                            })
+                            
+                            new_tag_start = tag_start
+                            if '<embed' in tag_start.lower():
+                                new_tag_start = tag_start.replace('<embed', '<img').replace('<EMBED', '<img')
+                            
+                            c_modified = True
+                            modified = True
+                            return f"{new_tag_start}../media/{local_filename}{tag_end}"
+                        except Exception as nested_err:
+                            print(f"[POSTPROCESS] [ERROR] Failed to write fallback SVG: {nested_err}")
+                            return match.group(0)
+                        
+                new_c_content = remote_src_pattern.sub(remote_replacer, c_content)
+                if c_modified:
+                    with open(c_file, 'w', encoding='utf-8') as f:
+                        f.write(new_c_content)
+            except Exception as content_err:
+                print(f"[POSTPROCESS] Failed to parse content file {c_file}: {content_err}")
+                
+        # Register new items in content.opf manifest
+        if new_manifest_items:
+            try:
+                with open(opf_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    opf_content = f.read()
+                
+                manifest_close_idx = opf_content.find('</manifest>')
+                if manifest_close_idx != -1:
+                    manifest_xml_lines = []
+                    for item in new_manifest_items:
+                        manifest_xml_lines.append(
+                            f'    <item id="{item["id"]}" href="{item["href"]}" media-type="{item["media-type"]}" />'
+                        )
+                    
+                    insertion_str = '\n'.join(manifest_xml_lines) + '\n'
+                    new_opf_content = (
+                        opf_content[:manifest_close_idx] + 
+                        insertion_str + 
+                        opf_content[manifest_close_idx:]
+                    )
+                    
+                    with open(opf_file_path, 'w', encoding='utf-8') as f:
+                        f.write(new_opf_content)
+                    print(f"[POSTPROCESS] Registered {len(new_manifest_items)} new assets in content.opf")
+                    modified = True
+            except Exception as opf_err:
+                print(f"[POSTPROCESS] Failed to modify content.opf: {opf_err}")
+                
+        if modified:
+            rebuild_epub(epub_path, post_temp)
+            print("[POSTPROCESS] EPUB post-processing completed and package rebuilt.")
+        else:
+            print("[POSTPROCESS] No post-processing modifications required.")
+
 # ----------------------------------------------------------------------
 # Backend EPUB Conversion Logic
 # ----------------------------------------------------------------------
@@ -265,6 +639,7 @@ def perform_epub_conversion(html_zip_bytes, cover_bytes, settings):
     include_toc = settings.get('toc', True)
     toc_depth = settings.get('toc_depth', 3)
     chapter_level = settings.get('chapter_level', 2)
+    math_rendering = settings.get('math_rendering', 'webtex_svg')
 
     theme_css = EPUB_THEMES.get(theme_key, EPUB_THEMES['bookish'])['css']
 
@@ -327,6 +702,43 @@ def perform_epub_conversion(html_zip_bytes, cover_bytes, settings):
             }
 
         html_dir = os.path.dirname(main_html)
+
+        # Pre-process image files (clean filenames, decode url-encoding, extract base64)
+        preprocess_html_images(extract_dir)
+
+        # Strip inline TOC from HTML files to prevent unresolved link errors (E24010) in EPUB
+        for root, _, files in os.walk(extract_dir):
+            for file in files:
+                if file.lower().endswith(('.html', '.htm')):
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            html_data = f.read()
+                        
+                        # Find and remove <nav id="TOC"...> or <div id="TOC"...>
+                        toc_match = re.search(r'<(nav|div)\s+[^>]*id="TOC"[^>]*>', html_data, re.IGNORECASE)
+                        if toc_match:
+                            tag = toc_match.group(1)
+                            open_tags = 1
+                            pos = toc_match.end()
+                            while open_tags > 0 and pos < len(html_data):
+                                next_open = html_data.find(f'<{tag}', pos)
+                                next_close = html_data.find(f'</{tag}>', pos)
+                                if next_close == -1:
+                                    break
+                                if next_open != -1 and next_open < next_close:
+                                    open_tags += 1
+                                    pos = next_open + len(tag) + 1
+                                else:
+                                    open_tags -= 1
+                                    pos = next_close + len(tag) + 3
+                            html_data = html_data[:toc_match.start()] + html_data[pos:]
+                            
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                f.write(html_data)
+                            print(f"[EPUB] Stripped inline TOC from {file_path} to prevent E24010 errors.")
+                    except Exception as strip_err:
+                        print(f"[WARNING] Could not strip TOC from {file_path}: {strip_err}")
         
         # Helper to format multiline text into HTML paragraphs
         def format_text_to_html(text):
@@ -480,7 +892,7 @@ def perform_epub_conversion(html_zip_bytes, cover_bytes, settings):
         ]
         pandoc_cmd.extend(input_files)
         pandoc_cmd.extend([
-            '--from=html',
+            '--from=html+tex_math_single_backslash+tex_math_double_backslash',
             '--to=epub3',
             '--metadata-file=metadata.yaml',
             '--css=epub.css',
@@ -488,6 +900,13 @@ def perform_epub_conversion(html_zip_bytes, cover_bytes, settings):
             '--resource-path=.',
             '-o', out_epub_name
         ])
+
+        if math_rendering == 'webtex_svg':
+            pandoc_cmd.append('--webtex=https://latex.codecogs.com/svg.latex?')
+        elif math_rendering == 'mathml':
+            pandoc_cmd.append('--mathml')
+        elif math_rendering == 'mathjax':
+            pandoc_cmd.append('--mathjax')
 
         if cover_path:
             pandoc_cmd.append(f'--epub-cover-image={os.path.basename(cover_path)}')
@@ -505,10 +924,10 @@ def perform_epub_conversion(html_zip_bytes, cover_bytes, settings):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                timeout=45
+                timeout=300
             )
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": "The compilation timed out (max 45s)."}
+            return {"success": False, "error": "The compilation timed out (max 300s)."}
         except Exception as e:
             return {"success": False, "error": f"Error running Pandoc: {str(e)}"}
 
@@ -517,6 +936,12 @@ def perform_epub_conversion(html_zip_bytes, cover_bytes, settings):
                 "success": False,
                 "error": f"Pandoc failed to generate EPUB file. Diagnostic details:\n{result.stderr}"
             }
+
+        # Post-process generated EPUB (clean TOC, download failed SVGs, etc.)
+        try:
+            postprocess_generated_epub(out_epub_path)
+        except Exception as post_err:
+            print(f"[WARNING] EPUB post-processing failed: {post_err}")
 
         # 8. Encode and return output EPUB
         try:
@@ -1222,22 +1647,22 @@ FRONTEND_HTML = """<!DOCTYPE html>
                 Archivos del Libro
             </div>
 
-            <div class="dropzone-container split">
+            <div class="dropzone-container split">     
                 <!-- HTML or ZIP dropzone -->
-                <label class="dropzone" id="html-dropzone" for="html-file-input">
+                <label class="dropzone" id="html-dropzone">
                     <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"></path></svg>
                     <span>Proyecto HTML</span>
                     <span class="small-hint">.html o .zip</span>
+                    <input type="file" id="html-file-input" accept=".html,.htm,.zip" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer; z-index:2;">
                 </label>
-                <input type="file" id="html-file-input" accept=".html,.htm,.zip" style="display:none;">
 
                 <!-- Cover image dropzone -->
-                <label class="dropzone" id="cover-dropzone" for="cover-file-input">
-                    <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"></path></svg>
+                <label class="dropzone" id="cover-dropzone">
+                    <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"></path></svg>
                     <span>Portada</span>
                     <span class="small-hint">PNG o JPG (opcional)</span>
+                    <input type="file" id="cover-file-input" accept=".png,.jpg,.jpeg" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer; z-index:2;">
                 </label>
-                <input type="file" id="cover-file-input" accept=".png,.jpg,.jpeg" style="display:none;">
             </div>
 
             <!-- Upload file indicators -->
@@ -1340,6 +1765,17 @@ FRONTEND_HTML = """<!DOCTYPE html>
             </div>
 
             <div class="row-grid">
+                <div class="setting-group">
+                    <label for="math-rendering">Fórmulas Matemáticas (Kindle / Ebooks)</label>
+                    <select id="math-rendering" class="select-input">
+                        <option value="webtex_svg" selected>Imágenes SVG en línea (Infalible para Kindle)</option>
+                        <option value="mathml">MathML nativo (Estándar EPUB3)</option>
+                        <option value="mathjax">MathJax Javascript (Para navegadores/apps)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row-grid">
                 <div class="setting-group" style="display: flex; align-items: center;">
                     <label class="toggle-container">
                         <input type="checkbox" id="book-toc" class="toggle-checkbox" checked onchange="toggleTocOptions()">
@@ -1419,7 +1855,10 @@ FRONTEND_HTML = """<!DOCTYPE html>
 
             // File selected via click (label triggers this)
             input.addEventListener('change', () => {
-                if (input.files.length > 0) handlerFn(input.files[0]);
+                if (input.files.length > 0) {
+                    console.log('Archivo seleccionado:', input.files[0].name);
+                    handlerFn(input.files[0]);
+                }
             });
 
             // Drag-and-drop support
@@ -1432,54 +1871,49 @@ FRONTEND_HTML = """<!DOCTYPE html>
             });
         }
 
-        setupFileInput('html-file-input',  'html-dropzone',  handleHtmlFile);
-        setupFileInput('cover-file-input', 'cover-dropzone', handleCoverFile);
+        
 
         // --- File Handlers ---
         function handleHtmlFile(file) {
             const reader = new FileReader();
             reader.onload = function(e) {
-                const arrBuf = e.target.result;
-                const bytes = new Uint8Array(arrBuf);
-                let binary = '';
-                for (let i = 0; i < bytes.length; i++) {
-                    binary += String.fromCharCode(bytes[i]);
-                }
-                htmlBase64 = btoa(binary);
-                
-                // Show file info
+                const dataUrl = e.target.result;
+                const base64 = dataUrl.split(',')[1];
+                htmlBase64 = base64;
+
                 document.getElementById('html-filename').innerText = file.name;
                 document.getElementById('html-file-info').style.display = 'flex';
-                
-                // Prefill Title field if empty
+
                 const titleField = document.getElementById('book-title');
                 if (!titleField.value) {
-                    const dotIndex = file.name.lastIndexOf('.');
-                    const nameOnly = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
+                    const nameOnly = file.name.replace(/\.[^.]+$/, '');
                     titleField.value = nameOnly.replace(/[_-]/g, ' ');
                 }
             };
-            reader.readAsArrayBuffer(file);
+            reader.onerror = function() {
+                showToast('Error al leer el archivo HTML/ZIP');
+            };
+            reader.readAsDataURL(file);
         }
 
         function handleCoverFile(file) {
             const reader = new FileReader();
             reader.onload = function(e) {
-                const arrBuf = e.target.result;
-                const bytes = new Uint8Array(arrBuf);
-                let binary = '';
-                for (let i = 0; i < bytes.length; i++) {
-                    binary += String.fromCharCode(bytes[i]);
-                }
-                coverBase64 = btoa(binary);
-                
-                // Show file info
+                const dataUrl = e.target.result;
+                const base64 = dataUrl.split(',')[1];
+                coverBase64 = base64;
+
                 document.getElementById('cover-filename').innerText = file.name;
                 document.getElementById('cover-file-info').style.display = 'flex';
             };
-            reader.readAsArrayBuffer(file);
+            reader.onerror = function() {
+                showToast('Error al leer la imagen de portada');
+            };
+            reader.readAsDataURL(file);
         }
 
+        setupFileInput('html-file-input',  'html-dropzone',  handleHtmlFile);
+        setupFileInput('cover-file-input', 'cover-dropzone', handleCoverFile);
         // --- Clear Uploads ---
         function clearHtmlFile() {
             htmlBase64 = null;
@@ -1533,7 +1967,7 @@ FRONTEND_HTML = """<!DOCTYPE html>
             text.innerText = 'Compilando...';
 
             const logs = document.getElementById('console-logs');
-            logs.innerText = "[PROCESO] Enviando archivos a Pandoc backend...\n";
+            logs.innerText = "[PROCESO] Enviando archivos a Pandoc backend...\\n";
 
             const payload = {
                 html_file: htmlBase64,
@@ -1551,7 +1985,8 @@ FRONTEND_HTML = """<!DOCTYPE html>
                     theme: document.getElementById('book-theme').value,
                     toc: document.getElementById('book-toc').checked,
                     toc_depth: parseInt(document.getElementById('toc-depth').value),
-                    chapter_level: parseInt(document.getElementById('chapter-level').value)
+                    chapter_level: parseInt(document.getElementById('chapter-level').value),
+                    math_rendering: document.getElementById('math-rendering').value
                 }
             };
 
@@ -1567,11 +2002,11 @@ FRONTEND_HTML = """<!DOCTYPE html>
                 text.innerText = 'Convertir a EPUB';
 
                 if (data.success) {
-                    logs.innerText += `[ÉXITO] EPUB Generado exitosamente como: ${data.filename}\n`;
+                    logs.innerText += `[ÉXITO] EPUB Generado exitosamente como: ${data.filename}\\n`;
                     if (data.logs) {
-                        logs.innerText += `\n[PANDOC LOGS]:\n${data.logs}`;
+                        logs.innerText += `\\n[PANDOC LOGS]:\\n${data.logs}`;
                     } else {
-                        logs.innerText += `\nSin advertencias de compilación.`;
+                        logs.innerText += `\\nSin advertencias de compilación.`;
                     }
 
                     // Render download links
@@ -1595,12 +2030,12 @@ FRONTEND_HTML = """<!DOCTYPE html>
                     
                     let msg = `Tu e-book "${title}" ha sido compilado a formato estándar EPUB 3 por Pandoc y está listo para descargar.`;
                     if (data.saved_local_path) {
-                        msg += `\n\nArchivo guardado automáticamente en:\n${data.saved_local_path}`;
-                        logs.innerText = `[SISTEMA LOCAL] Archivo guardado automáticamente en tu carpeta de Descargas:\n👉 ${data.saved_local_path}\n\n` + logs.innerText;
+                        msg += `\\n\\nArchivo guardado automáticamente en:\\n${data.saved_local_path}`;
+                        logs.innerText = `[SISTEMA LOCAL] Archivo guardado automáticamente en tu carpeta de Descargas:\\n👉 ${data.saved_local_path}\\n\\n` + logs.innerText;
                     }
                     document.getElementById('success-message').innerText = msg;
                 } else {
-                    logs.innerText += `[FALLO] Pandoc reportó un error:\n${data.error}`;
+                    logs.innerText += `[FALLO] Pandoc reportó un error:\\n${data.error}`;
                     showToast("Error de conversión. Revisa la consola.");
                 }
             })
@@ -1608,7 +2043,7 @@ FRONTEND_HTML = """<!DOCTYPE html>
                 btn.disabled = false;
                 spinner.style.display = 'none';
                 text.innerText = 'Convertir a EPUB';
-                logs.innerText += `[ERROR] Error de comunicación HTTP: ${err}\n`;
+                logs.innerText += `[ERROR] Error de comunicación HTTP: ${err}\\n`;
                 showToast("Error de comunicación con el servidor.");
             });
         }
